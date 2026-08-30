@@ -145,8 +145,8 @@ const DEFAULTS = {
   mesas: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ id: uid(), numero: n })),
   comandas: [],
   empleados: [
-    { id: uid(), nombre: "Karla Ruiz", puesto: "Mesera", tarifaHora: 45 },
-    { id: uid(), nombre: "Beto Sánchez", puesto: "Cocina", tarifaHora: 52 },
+    { id: uid(), nombre: "Karla Ruiz", puesto: "Mesero", rfc: "RUIK900101AB1", contrasena: "1234", tarifaHora: 45 },
+    { id: uid(), nombre: "Beto Sánchez", puesto: "Cocina", rfc: "SAHB880202CD2", contrasena: "5678", tarifaHora: 52 },
   ],
   turnos: [],
   proveedores: [
@@ -157,6 +157,8 @@ const DEFAULTS = {
   cortes: [],
   ingredientes: INGREDIENTES_BASE,
 };
+
+const PUESTOS = ["Mesero", "Cocina", "Caja", "Gerencia"];
 
 // Identidad de color por sección — cada área del negocio tiene su propio tono
 const ACCENTS = {
@@ -515,7 +517,7 @@ export default function App() {
       ) : (
         <>
           {tab === "mesero" && (
-            <Mesero mesas={mesas} platillos={platillos} comandas={comandas} saveCom={saveCom} inventario={inventario} saveInv={saveInv} accent={ACCENTS.mesero} />
+            <Mesero mesas={mesas} platillos={platillos} comandas={comandas} saveCom={saveCom} inventario={inventario} saveInv={saveInv} empleados={empleados} accent={ACCENTS.mesero} />
           )}
           {tab === "reservaciones" && (
             <Reservaciones mesas={mesas} reservas={reservas} saveReservas={saveReservas} estadoMesas={estadoMesas} saveEstadoMesas={saveEstadoMesas} accent={ACCENTS.reservaciones} />
@@ -558,7 +560,7 @@ export default function App() {
           )}
         </>
       )}
-      {tab === "config" && <Configuracion config={config} saveConfig={saveConfig} suscripcion={suscripcion} saveSuscripcion={saveSuscripcion} sesion={sesion} onCerrarSesion={() => setSesion(null)} accent={ACCENTS.config} />}
+      {tab === "config" && <Configuracion config={config} saveConfig={saveConfig} suscripcion={suscripcion} saveSuscripcion={saveSuscripcion} sesion={sesion} onCerrarSesion={() => setSesion(null)} empleados={empleados} saveEmp={saveEmp} accent={ACCENTS.config} />}
     </div>
   );
 }
@@ -697,8 +699,10 @@ function Inicio({ onNavigate, activo, comandas, sesion }) {
 }
 
 // ---------- MESERO ----------
-function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, accent }) {
+function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empleados, accent }) {
+  const meseros = (empleados || []).filter((e) => e.puesto === "Mesero");
   const [mesaSel, setMesaSel] = useState(mesas[0]?.numero || 1);
+  const [meseroSel, setMeseroSel] = useState(meseros[0]?.id || "");
   const [carrito, setCarrito] = useState([]);
 
   const stockDe = (platilloId) => inventario.find((i) => i.platilloId === platilloId);
@@ -736,9 +740,11 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, acce
   const enviarComanda = () => {
     if (carrito.length === 0) return;
     const itemsLimpios = carrito.map((i) => ({ ...i, comentario: (i.comentario || "").trim() }));
+    const mesero = meseros.find((m) => m.id === meseroSel);
     const nueva = {
       id: uid(),
       mesa: mesaSel,
+      mesero: mesero?.nombre || "",
       items: itemsLimpios,
       estado: "pendiente",
       hora: new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
@@ -759,13 +765,23 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, acce
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>Mesa</label>
         <select value={mesaSel} onChange={(e) => setMesaSel(Number(e.target.value))} style={{ width: 90 }}>
           {mesas.map((m) => (
             <option key={m.id} value={m.numero}>#{m.numero}</option>
           ))}
         </select>
+        <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>Mesero</label>
+        {meseros.length === 0 ? (
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Da de alta un mesero en Configuración</span>
+        ) : (
+          <select value={meseroSel} onChange={(e) => setMeseroSel(e.target.value)} style={{ flex: 1, minWidth: 120 }}>
+            {meseros.map((m) => (
+              <option key={m.id} value={m.id}>{m.nombre}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {["Entradas", "Fuertes", "Postres"].map((cat) => {
@@ -899,7 +915,7 @@ function HistorialPedidos({ comandas, accent }) {
             >
               <span style={{ fontSize: 13 }}>
                 <i className={`ti ti-chevron-${expandido ? "down" : "right"}`} style={{ fontSize: 13, marginRight: 6, color: "var(--text-muted)" }} aria-hidden="true" />
-                Mesa {c.mesa} · {c.hora} · {money(c.total)}
+                Mesa {c.mesa}{c.mesero && ` · ${c.mesero}`} · {c.hora} · {money(c.total)}
               </span>
               <EstadoBadge estado={c.estado} />
             </button>
@@ -1934,6 +1950,7 @@ function Nomina({ empleados, turnos, saveTur, accent }) {
               <div>
                 <div style={{ fontWeight: 500 }}>{e.nombre}</div>
                 <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>{e.puesto} · {money(e.tarifaHora)}/hr</div>
+                {e.rfc && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>RFC: {e.rfc}</div>}
               </div>
               {enTurno ? (
                 <span style={{ fontSize: 12, color: accent.icon, background: accent.bg, padding: "2px 9px", borderRadius: 999, fontWeight: 500, height: "fit-content" }}>
@@ -2230,9 +2247,47 @@ function Facturacion({ comandas, datosFiscales, saveDatosFiscales, facturas, sav
 }
 
 // ---------- CONFIGURACION ----------
-function Configuracion({ config, saveConfig, suscripcion, saveSuscripcion, sesion, onCerrarSesion, accent }) {
+function Configuracion({ config, saveConfig, suscripcion, saveSuscripcion, sesion, onCerrarSesion, empleados, saveEmp, accent }) {
   const [nombre, setNombre] = useState(config.nombre || "");
   const [error, setError] = useState("");
+
+  const [formEmp, setFormEmp] = useState({ nombre: "", puesto: PUESTOS[0], rfc: "", contrasena: "", tarifaHora: "" });
+  const [errorEmp, setErrorEmp] = useState("");
+
+  const altaEmpleado = () => {
+    if (!formEmp.nombre.trim()) {
+      setErrorEmp("Escribe el nombre del empleado.");
+      return;
+    }
+    const rfc = formEmp.rfc.trim().toUpperCase();
+    if (rfc.length < 12 || rfc.length > 13) {
+      setErrorEmp("El RFC debe tener 12 o 13 caracteres.");
+      return;
+    }
+    if (!/^\d{4}$/.test(formEmp.contrasena)) {
+      setErrorEmp("La contraseña debe ser de exactamente 4 dígitos numéricos.");
+      return;
+    }
+    if (!formEmp.tarifaHora || Number(formEmp.tarifaHora) <= 0) {
+      setErrorEmp("Escribe una tarifa por hora válida.");
+      return;
+    }
+    setErrorEmp("");
+    saveEmp([
+      ...empleados,
+      {
+        id: uid(),
+        nombre: formEmp.nombre.trim(),
+        puesto: formEmp.puesto,
+        rfc,
+        contrasena: formEmp.contrasena,
+        tarifaHora: Number(formEmp.tarifaHora),
+      },
+    ]);
+    setFormEmp({ nombre: "", puesto: PUESTOS[0], rfc: "", contrasena: "", tarifaHora: "" });
+  };
+
+  const eliminarEmpleado = (id) => saveEmp(empleados.filter((e) => e.id !== id));
 
   const guardarNombre = () => {
     if (!nombre.trim()) {
@@ -2318,6 +2373,61 @@ function Configuracion({ config, saveConfig, suscripcion, saveSuscripcion, sesio
         <button onClick={guardarNombre} style={{ width: "100%", background: accent.solid, color: "#fff", border: `0.5px solid ${accent.solid}`, borderRadius: 10 }}>
           Guardar nombre ↗
         </button>
+      </div>
+
+      <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 14, padding: "1rem", marginTop: 16 }}>
+        <p style={{ fontSize: 13, fontWeight: 500, margin: "0 0 10px" }}>Empleados ({empleados.length})</p>
+        {empleados.length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 10px" }}>Aún no has dado de alta empleados.</p>
+        ) : (
+          empleados.map((e) => (
+            <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "0.5px solid var(--border)" }}>
+              <div>
+                <div style={{ fontSize: 14 }}>{e.nombre}</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{e.puesto} · RFC {e.rfc || "—"} · {money(e.tarifaHora)}/hr</div>
+              </div>
+              <i className="ti ti-trash" style={{ fontSize: 16, cursor: "pointer", color: "var(--text-danger)" }} onClick={() => eliminarEmpleado(e.id)} aria-hidden="true" />
+            </div>
+          ))
+        )}
+
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "16px 0 8px" }}>Dar de alta empleado</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <input
+            placeholder="Nombre del empleado"
+            value={formEmp.nombre}
+            onChange={(e) => setFormEmp({ ...formEmp, nombre: e.target.value })}
+          />
+          <select value={formEmp.puesto} onChange={(e) => setFormEmp({ ...formEmp, puesto: e.target.value })}>
+            {PUESTOS.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <input
+            placeholder="RFC"
+            value={formEmp.rfc}
+            maxLength={13}
+            onChange={(e) => setFormEmp({ ...formEmp, rfc: e.target.value.toUpperCase() })}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8 }}>
+            <input
+              type="password"
+              inputMode="numeric"
+              placeholder="Contraseña (4 dígitos)"
+              value={formEmp.contrasena}
+              maxLength={4}
+              onChange={(e) => setFormEmp({ ...formEmp, contrasena: e.target.value.replace(/\D/g, "") })}
+            />
+            <input
+              type="number"
+              placeholder="Tarifa por hora"
+              value={formEmp.tarifaHora}
+              onChange={(e) => setFormEmp({ ...formEmp, tarifaHora: e.target.value })}
+            />
+          </div>
+          {errorEmp && <p style={{ fontSize: 13, color: "var(--text-danger)", margin: 0 }}>{errorEmp}</p>}
+          <button onClick={altaEmpleado} style={{ background: accent.solid, color: "#fff", border: `0.5px solid ${accent.solid}`, borderRadius: 10 }}>
+            Dar de alta ↗
+          </button>
+        </div>
       </div>
     </div>
   );
