@@ -1086,8 +1086,7 @@ function HistorialPedidos({ comandas, accent }) {
 function EstadoBadge({ estado }) {
   const map = {
     pendiente: { bg: "#FAEEDA", text: "#633806", label: "Pendiente" },
-    preparando: { bg: "#E6F1FB", text: "#0C447C", label: "Preparando" },
-    listo: { bg: "#EAF3DE", text: "#27500A", label: "Listo" },
+    preparado: { bg: "#EAF3DE", text: "#27500A", label: "Preparado" },
     entregado: { bg: "var(--surface-1)", text: "var(--text-secondary)", label: "Entregado" },
   };
   const s = map[estado] || map.pendiente;
@@ -1298,7 +1297,7 @@ function Cocina({ comandas, saveCom, inventario, saveInv, setAlertaStock, accent
   const activas = comandas.filter((c) => c.estado !== "entregado" && c.fecha === today());
   const historial = comandas.filter((c) => c.estado === "entregado" && c.fecha === today());
   const avanzar = (id) => {
-    const orden = ["pendiente", "preparando", "listo", "entregado"];
+    const orden = ["pendiente", "preparado", "entregado"];
     const comanda = comandas.find((c) => c.id === id);
     if (!comanda) return;
     const nuevoEstado = orden[orden.indexOf(comanda.estado) + 1] || comanda.estado;
@@ -1383,7 +1382,7 @@ function Cocina({ comandas, saveCom, inventario, saveInv, setAlertaStock, accent
             ))}
             {vista === "activas" && (
               <button onClick={() => avanzar(c.id)} style={{ marginTop: 8, width: "100%", background: accent.solid, color: "#fff", border: `0.5px solid ${accent.solid}`, borderRadius: 10 }}>
-                Marcar como {{ pendiente: "preparando", preparando: "listo", listo: "entregado" }[c.estado]} ↗
+                Marcar como {{ pendiente: "preparado", preparado: "entregado" }[c.estado]} ↗
               </button>
             )}
           </div>
