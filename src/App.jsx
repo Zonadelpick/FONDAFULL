@@ -420,6 +420,7 @@ export default function App() {
   const [cuentas, saveCuentas] = useCloudState("rc_cuentas", []);
   const [sesionMesero, setSesionMesero] = useState(null);
   const [sesionChef, setSesionChef] = useState(null);
+  const [alertaStock, setAlertaStock] = useState([]);
   const activo = suscripcion.status === "active";
 
   const accent = ACCENTS[tab];
@@ -526,7 +527,6 @@ export default function App() {
               comandas={comandas}
               saveCom={saveCom}
               inventario={inventario}
-              saveInv={saveInv}
               empleados={empleados}
               estadoMesas={estadoMesas}
               saveEstadoMesas={saveEstadoMesas}
@@ -534,6 +534,8 @@ export default function App() {
               saveCuentas={saveCuentas}
               sesionMesero={sesionMesero}
               setSesionMesero={setSesionMesero}
+              alertaStock={alertaStock}
+              setAlertaStock={setAlertaStock}
               accent={ACCENTS.mesero}
             />
           )}
@@ -550,7 +552,16 @@ export default function App() {
               accent={ACCENTS.reservaciones}
             />
           )}
-          {tab === "cocina" && <Cocina comandas={comandas} saveCom={saveCom} accent={ACCENTS.cocina} />}
+          {tab === "cocina" && (
+            <Cocina
+              comandas={comandas}
+              saveCom={saveCom}
+              inventario={inventario}
+              saveInv={saveInv}
+              setAlertaStock={setAlertaStock}
+              accent={ACCENTS.cocina}
+            />
+          )}
           {tab === "caja" && (
             <Caja comandas={comandas} cortes={cortes} saveCortes={saveCortes} aperturas={aperturas} saveAperturas={saveAperturas} accent={ACCENTS.caja} />
           )}
@@ -736,7 +747,7 @@ function Inicio({ onNavigate, activo, comandas, sesion }) {
 }
 
 // ---------- MESERO ----------
-function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empleados, estadoMesas, saveEstadoMesas, cuentas, saveCuentas, sesionMesero, setSesionMesero, accent }) {
+function Mesero({ mesas, platillos, comandas, saveCom, inventario, empleados, estadoMesas, saveEstadoMesas, cuentas, saveCuentas, sesionMesero, setSesionMesero, alertaStock, setAlertaStock, accent }) {
   const meseros = (empleados || []).filter((e) => e.puesto === "Mesero");
 
   const [rfcLogin, setRfcLogin] = useState("");
@@ -745,7 +756,6 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
   const [mesaSel, setMesaSel] = useState(mesas[0]?.numero || 1);
   const [responsable, setResponsable] = useState("");
   const [carrito, setCarrito] = useState([]);
-  const [alertaStock, setAlertaStock] = useState([]);
 
   const ingresar = () => {
     const encontrado = meseros.find(
@@ -811,11 +821,15 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
   };
 
   const stockDe = (platilloId) => inventario.find((i) => i.platilloId === platilloId);
+  const comprometidoEnCocina = (platilloId) =>
+    comandas
+      .filter((c) => c.fecha === today() && c.estado !== "entregado")
+      .reduce((s, c) => s + (c.items.find((i) => i.platilloId === platilloId)?.cant || 0), 0);
   const disponibles = (platilloId) => {
     const inv = stockDe(platilloId);
     if (!inv) return null; // sin control de inventario para este platillo
     const enCarritoCant = carrito.find((i) => i.platilloId === platilloId)?.cant || 0;
-    return inv.stock - enCarritoCant;
+    return inv.stock - comprometidoEnCocina(platilloId) - enCarritoCant;
   };
 
   const addItem = (p) => {
@@ -857,17 +871,7 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
       total: itemsLimpios.reduce((s, i) => s + i.precio * i.cant, 0),
     };
     saveCom([nueva, ...comandas]);
-
-    // Descuenta del inventario por porción, ligado al platillo pedido
-    const invActualizado = inventario.map((inv) => {
-      const pedido = itemsLimpios.find((i) => i.platilloId === inv.platilloId);
-      return pedido ? { ...inv, stock: Math.max(0, inv.stock - pedido.cant) } : inv;
-    });
-    saveInv(invActualizado);
-
-    const quedanEnUno = invActualizado.filter((inv) => inv.stock === 1 && itemsLimpios.some((i) => i.platilloId === inv.platilloId));
-    setAlertaStock(quedanEnUno.map((inv) => inv.nombre));
-
+    // El inventario se descuenta hasta que Cocina marca la comanda como entregada.
     setCarrito([]);
   };
 
@@ -1289,13 +1293,32 @@ function Reservaciones({ mesas, reservas, saveReservas, estadoMesas, saveEstadoM
 }
 
 // ---------- COCINA ----------
-function Cocina({ comandas, saveCom, accent }) {
+function Cocina({ comandas, saveCom, inventario, saveInv, setAlertaStock, accent }) {
   const [vista, setVista] = useState("activas");
   const activas = comandas.filter((c) => c.estado !== "entregado" && c.fecha === today());
   const historial = comandas.filter((c) => c.estado === "entregado" && c.fecha === today());
   const avanzar = (id) => {
     const orden = ["pendiente", "preparando", "listo", "entregado"];
-    saveCom(comandas.map((c) => (c.id === id ? { ...c, estado: orden[orden.indexOf(c.estado) + 1] || c.estado } : c)));
+    const comanda = comandas.find((c) => c.id === id);
+    if (!comanda) return;
+    const nuevoEstado = orden[orden.indexOf(comanda.estado) + 1] || comanda.estado;
+    saveCom(comandas.map((c) => (c.id === id ? { ...c, estado: nuevoEstado } : c)));
+
+    if (nuevoEstado === "entregado") {
+      // El inventario se descuenta hasta que el platillo se entrega, no al enviarse la comanda.
+      const invActualizado = inventario.map((inv) => {
+        const pedido = comanda.items.find((i) => i.platilloId === inv.platilloId);
+        return pedido ? { ...inv, stock: Math.max(0, inv.stock - pedido.cant) } : inv;
+      });
+      saveInv(invActualizado);
+
+      const quedanEnUno = invActualizado.filter(
+        (inv) => inv.stock === 1 && comanda.items.some((i) => i.platilloId === inv.platilloId)
+      );
+      if (quedanEnUno.length > 0) {
+        setAlertaStock((prev) => Array.from(new Set([...(prev || []), ...quedanEnUno.map((inv) => inv.nombre)])));
+      }
+    }
   };
 
   const lista = vista === "activas" ? activas : historial;
