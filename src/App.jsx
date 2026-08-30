@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const money = (n) => `$${(Number(n) || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}`;
@@ -192,6 +192,26 @@ function useCloudState(key, fallback) {
     } catch (e) {
       console.error("storage error", e);
     }
+  }, [key]);
+
+  const fallbackRef = useRef(fallback);
+  useEffect(() => {
+    fallbackRef.current = fallback;
+  });
+
+  // Mantiene sincronizados el inventario, las comandas, etc. entre pestañas del mismo navegador
+  // (p. ej. Mesero, Cocina y el chef abiertos en pestañas separadas al mismo tiempo).
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key !== key) return;
+      try {
+        setValue(e.newValue ? JSON.parse(e.newValue) : fallbackRef.current);
+      } catch {
+        // valor inválido, se ignora
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, [key]);
 
   return [value, save];
@@ -756,6 +776,7 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, empleados, es
   const [mesaSel, setMesaSel] = useState(mesas[0]?.numero || 1);
   const [responsable, setResponsable] = useState("");
   const [carrito, setCarrito] = useState([]);
+  const [errorEnvio, setErrorEnvio] = useState("");
 
   const ingresar = () => {
     const encontrado = meseros.find(
@@ -858,6 +879,21 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, empleados, es
 
   const enviarComanda = () => {
     if (carrito.length === 0 || !cuentaAbierta) return;
+
+    // Verificación final por si el inventario cambió mientras se armaba la comanda
+    // (p. ej. otro mesero pidió lo mismo, o cocina entregó algo mientras tanto).
+    const excedidos = carrito.filter((item) => {
+      const inv = stockDe(item.platilloId);
+      if (!inv) return false;
+      const disponibleSinCarrito = inv.stock - comprometidoEnCocina(item.platilloId);
+      return item.cant > disponibleSinCarrito;
+    });
+    if (excedidos.length > 0) {
+      setErrorEnvio(`Ya no hay suficiente inventario de: ${excedidos.map((i) => i.nombre).join(", ")}. Ajusta las cantidades.`);
+      return;
+    }
+    setErrorEnvio("");
+
     const itemsLimpios = carrito.map((i) => ({ ...i, comentario: (i.comentario || "").trim() }));
     const nueva = {
       id: uid(),
@@ -872,6 +908,20 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, empleados, es
     };
     saveCom([nueva, ...comandas]);
     // El inventario se descuenta hasta que Cocina marca la comanda como entregada.
+
+    // Alerta previa: si tras esta comanda a un platillo le queda exactamente 1 disponible, avisar de una vez.
+    const quedanEnUno = itemsLimpios
+      .map((item) => {
+        const inv = stockDe(item.platilloId);
+        if (!inv) return null;
+        const disponibleTrasEnvio = inv.stock - comprometidoEnCocina(item.platilloId) - item.cant;
+        return disponibleTrasEnvio === 1 ? item.nombre : null;
+      })
+      .filter(Boolean);
+    if (quedanEnUno.length > 0) {
+      setAlertaStock((prev) => Array.from(new Set([...(prev || []), ...quedanEnUno])));
+    }
+
     setCarrito([]);
   };
 
@@ -1009,8 +1059,9 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, empleados, es
                   <span style={{ minWidth: 16, textAlign: "center", fontWeight: 500 }}>{i.cant}</span>
                   <button
                     onClick={() => addItem({ id: i.platilloId, nombre: i.nombre, precio: i.precio })}
+                    disabled={disponibles(i.platilloId) !== null && disponibles(i.platilloId) <= 0}
                     aria-label={`Sumar ${i.nombre}`}
-                    style={{ width: 24, height: 24, padding: 0, borderRadius: "50%", background: accent.solid, border: `0.5px solid ${accent.solid}`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    style={{ width: 24, height: 24, padding: 0, borderRadius: "50%", background: accent.solid, border: `0.5px solid ${accent.solid}`, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", opacity: disponibles(i.platilloId) !== null && disponibles(i.platilloId) <= 0 ? 0.5 : 1 }}
                   >
                     <i className="ti ti-plus" style={{ fontSize: 14 }} aria-hidden="true" />
                   </button>
@@ -1033,6 +1084,7 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, empleados, es
         </div>
       )}
 
+      {errorEnvio && <p style={{ fontSize: 12, color: "var(--text-danger)", margin: "0 0 8px" }}>{errorEnvio}</p>}
           <button onClick={enviarComanda} disabled={carrito.length === 0} style={{ width: "100%", background: accent.solid, color: "#fff", border: `0.5px solid ${accent.solid}`, borderRadius: 10 }}>
             Enviar comanda a cocina ↗
           </button>
