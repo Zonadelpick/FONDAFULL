@@ -417,6 +417,8 @@ export default function App() {
   const [costeoCfg, saveCosteoCfg] = useCloudState("rc_costeo_config", { platillosMes: 0 });
   const [config, saveConfig] = useCloudState("rc_config", { nombre: "", logo: null });
   const [suscripcion, saveSuscripcion] = useCloudState("rc_suscripcion", { status: "inactive", desde: null });
+  const [cuentas, saveCuentas] = useCloudState("rc_cuentas", []);
+  const [sesionMesero, setSesionMesero] = useState(null);
   const activo = suscripcion.status === "active";
 
   const accent = ACCENTS[tab];
@@ -517,10 +519,35 @@ export default function App() {
       ) : (
         <>
           {tab === "mesero" && (
-            <Mesero mesas={mesas} platillos={platillos} comandas={comandas} saveCom={saveCom} inventario={inventario} saveInv={saveInv} empleados={empleados} accent={ACCENTS.mesero} />
+            <Mesero
+              mesas={mesas}
+              platillos={platillos}
+              comandas={comandas}
+              saveCom={saveCom}
+              inventario={inventario}
+              saveInv={saveInv}
+              empleados={empleados}
+              estadoMesas={estadoMesas}
+              saveEstadoMesas={saveEstadoMesas}
+              cuentas={cuentas}
+              saveCuentas={saveCuentas}
+              sesionMesero={sesionMesero}
+              setSesionMesero={setSesionMesero}
+              accent={ACCENTS.mesero}
+            />
           )}
           {tab === "reservaciones" && (
-            <Reservaciones mesas={mesas} reservas={reservas} saveReservas={saveReservas} estadoMesas={estadoMesas} saveEstadoMesas={saveEstadoMesas} accent={ACCENTS.reservaciones} />
+            <Reservaciones
+              mesas={mesas}
+              reservas={reservas}
+              saveReservas={saveReservas}
+              estadoMesas={estadoMesas}
+              saveEstadoMesas={saveEstadoMesas}
+              cuentas={cuentas}
+              saveCuentas={saveCuentas}
+              comandas={comandas}
+              accent={ACCENTS.reservaciones}
+            />
           )}
           {tab === "cocina" && <Cocina comandas={comandas} saveCom={saveCom} accent={ACCENTS.cocina} />}
           {tab === "caja" && (
@@ -699,11 +726,78 @@ function Inicio({ onNavigate, activo, comandas, sesion }) {
 }
 
 // ---------- MESERO ----------
-function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empleados, accent }) {
+function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empleados, estadoMesas, saveEstadoMesas, cuentas, saveCuentas, sesionMesero, setSesionMesero, accent }) {
   const meseros = (empleados || []).filter((e) => e.puesto === "Mesero");
+
+  const [rfcLogin, setRfcLogin] = useState("");
+  const [pinLogin, setPinLogin] = useState("");
+  const [errorLogin, setErrorLogin] = useState("");
   const [mesaSel, setMesaSel] = useState(mesas[0]?.numero || 1);
-  const [meseroSel, setMeseroSel] = useState(meseros[0]?.id || "");
+  const [responsable, setResponsable] = useState("");
   const [carrito, setCarrito] = useState([]);
+
+  const ingresar = () => {
+    const encontrado = meseros.find(
+      (m) => (m.rfc || "").toUpperCase() === rfcLogin.trim().toUpperCase() && m.contrasena === pinLogin
+    );
+    if (!encontrado) {
+      setErrorLogin("RFC o contraseña incorrectos.");
+      return;
+    }
+    setErrorLogin("");
+    setRfcLogin("");
+    setPinLogin("");
+    setSesionMesero({ id: encontrado.id, nombre: encontrado.nombre });
+  };
+
+  if (!sesionMesero) {
+    return (
+      <div style={{ maxWidth: 320, margin: "32px auto", textAlign: "center" }}>
+        <div style={{ width: 48, height: 48, borderRadius: 12, background: accent.bg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+          <i className="ti ti-user-check" style={{ fontSize: 22, color: accent.icon }} aria-hidden="true" />
+        </div>
+        <p style={{ fontSize: 15, fontWeight: 500, margin: "0 0 4px" }}>Inicio de sesión de mesero</p>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>Ingresa tu RFC y contraseña para tomar comandas.</p>
+        {meseros.length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Aún no hay meseros dados de alta. Ve a Configuración.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, textAlign: "left" }}>
+            <input placeholder="RFC" value={rfcLogin} onChange={(e) => setRfcLogin(e.target.value.toUpperCase())} />
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="Contraseña (4 dígitos)"
+              value={pinLogin}
+              onChange={(e) => setPinLogin(e.target.value.replace(/\D/g, ""))}
+            />
+            {errorLogin && <p style={{ fontSize: 12, color: "var(--text-danger)", margin: 0 }}>{errorLogin}</p>}
+            <button onClick={ingresar} style={{ background: accent.solid, color: "#fff", border: `0.5px solid ${accent.solid}`, borderRadius: 10 }}>
+              Ingresar ↗
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const cuentaAbierta = cuentas.find((c) => c.mesa === mesaSel && c.abierta);
+
+  const abrirCuenta = () => {
+    if (!responsable.trim()) return;
+    const nueva = {
+      id: uid(),
+      mesa: mesaSel,
+      responsable: responsable.trim(),
+      mesero: sesionMesero.nombre,
+      abierta: true,
+      fecha: today(),
+      horaApertura: new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
+    };
+    saveCuentas([...cuentas, nueva]);
+    saveEstadoMesas({ ...estadoMesas, [mesaSel]: "ocupada" });
+    setResponsable("");
+  };
 
   const stockDe = (platilloId) => inventario.find((i) => i.platilloId === platilloId);
   const disponibles = (platilloId) => {
@@ -738,13 +832,13 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
   };
 
   const enviarComanda = () => {
-    if (carrito.length === 0) return;
+    if (carrito.length === 0 || !cuentaAbierta) return;
     const itemsLimpios = carrito.map((i) => ({ ...i, comentario: (i.comentario || "").trim() }));
-    const mesero = meseros.find((m) => m.id === meseroSel);
     const nueva = {
       id: uid(),
       mesa: mesaSel,
-      mesero: mesero?.nombre || "",
+      cuentaId: cuentaAbierta.id,
+      mesero: sesionMesero.nombre,
       items: itemsLimpios,
       estado: "pendiente",
       hora: new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
@@ -765,6 +859,13 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
 
   return (
     <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+          Mesero: <strong style={{ color: "var(--text-primary)" }}>{sesionMesero.nombre}</strong>
+        </div>
+        <button onClick={() => setSesionMesero(null)} style={{ fontSize: 12, padding: "4px 10px" }}>Cerrar sesión</button>
+      </div>
+
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>Mesa</label>
         <select value={mesaSel} onChange={(e) => setMesaSel(Number(e.target.value))} style={{ width: 90 }}>
@@ -772,19 +873,34 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
             <option key={m.id} value={m.numero}>#{m.numero}</option>
           ))}
         </select>
-        <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>Mesero</label>
-        {meseros.length === 0 ? (
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Da de alta un mesero en Configuración</span>
-        ) : (
-          <select value={meseroSel} onChange={(e) => setMeseroSel(e.target.value)} style={{ flex: 1, minWidth: 120 }}>
-            {meseros.map((m) => (
-              <option key={m.id} value={m.id}>{m.nombre}</option>
-            ))}
-          </select>
-        )}
       </div>
 
-      {["Entradas", "Fuertes", "Postres"].map((cat) => {
+      {!cuentaAbierta ? (
+        <div style={{ background: accent.bg, borderRadius: 14, padding: "1rem", marginBottom: 16 }}>
+          <p style={{ fontSize: 13, color: accent.icon, margin: "0 0 8px" }}>
+            Esta mesa no tiene cuenta abierta. Escribe el nombre del responsable para abrirla.
+          </p>
+          <input
+            placeholder="Nombre del responsable de cuenta"
+            value={responsable}
+            onChange={(e) => setResponsable(e.target.value)}
+            style={{ width: "100%", marginBottom: 8 }}
+          />
+          <button
+            onClick={abrirCuenta}
+            disabled={!responsable.trim()}
+            style={{ width: "100%", background: accent.solid, color: "#fff", border: `0.5px solid ${accent.solid}`, borderRadius: 10 }}
+          >
+            Abrir cuenta ↗
+          </button>
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 12 }}>
+            Cuenta abierta a nombre de <strong style={{ color: "var(--text-primary)" }}>{cuentaAbierta.responsable}</strong>
+          </div>
+
+          {["Entradas", "Fuertes", "Postres"].map((cat) => {
         const items = platillos.filter((p) => (p.categoria || "Otros") === cat);
         if (items.length === 0) return null;
         return (
@@ -888,9 +1004,11 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
         </div>
       )}
 
-      <button onClick={enviarComanda} disabled={carrito.length === 0} style={{ width: "100%", background: accent.solid, color: "#fff", border: `0.5px solid ${accent.solid}`, borderRadius: 10 }}>
-        Enviar comanda a cocina ↗
-      </button>
+          <button onClick={enviarComanda} disabled={carrito.length === 0} style={{ width: "100%", background: accent.solid, color: "#fff", border: `0.5px solid ${accent.solid}`, borderRadius: 10 }}>
+            Enviar comanda a cocina ↗
+          </button>
+        </>
+      )}
 
       <HistorialPedidos comandas={comandas} accent={accent} />
     </div>
@@ -953,8 +1071,6 @@ const ESTADOS_MESA = {
   reservada: { label: "Reservada", bg: "#FAEEDA", text: "#633806", dot: "#BA7517" },
   ocupada: { label: "Ocupada", bg: "#FAECE7", text: "#712B13", dot: "#D85A30" },
 };
-const ORDEN_ESTADO_MESA = ["libre", "reservada", "ocupada"];
-
 function ReservaBadge({ estatus }) {
   const map = {
     pendiente: { bg: "#FAEEDA", text: "#633806", label: "Pendiente" },
@@ -965,15 +1081,29 @@ function ReservaBadge({ estatus }) {
   return <span style={{ fontSize: 11, background: s.bg, color: s.text, padding: "2px 8px", borderRadius: 999, fontWeight: 500 }}>{s.label}</span>;
 }
 
-function Reservaciones({ mesas, reservas, saveReservas, estadoMesas, saveEstadoMesas, accent }) {
+function Reservaciones({ mesas, reservas, saveReservas, estadoMesas, saveEstadoMesas, cuentas, saveCuentas, comandas, accent }) {
   const [fechaVer, setFechaVer] = useState(today());
   const [form, setForm] = useState({ mesa: mesas[0]?.numero || 1, fecha: today(), hora: "", personas: "2", nombre: "", telefono: "", notas: "" });
   const [error, setError] = useState("");
+  const [boucher, setBoucher] = useState(null);
 
   const ciclarEstadoMesa = (numero) => {
     const actual = estadoMesas[numero] || "libre";
-    const siguiente = ORDEN_ESTADO_MESA[(ORDEN_ESTADO_MESA.indexOf(actual) + 1) % ORDEN_ESTADO_MESA.length];
+    if (actual === "ocupada") return; // se controla automáticamente desde Mesero al abrir/cerrar cuenta
+    const siguiente = actual === "libre" ? "reservada" : "libre";
     saveEstadoMesas({ ...estadoMesas, [numero]: siguiente });
+  };
+
+  const cuentasAbiertas = cuentas.filter((c) => c.abierta);
+  const totalCuenta = (cuenta) => comandas.filter((c) => c.cuentaId === cuenta.id).reduce((s, c) => s + c.total, 0);
+
+  const cerrarCuenta = (cuenta) => {
+    const total = totalCuenta(cuenta);
+    const itemsCuenta = comandas.filter((c) => c.cuentaId === cuenta.id).flatMap((c) => c.items);
+    const horaCierre = new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+    saveCuentas(cuentas.map((c) => (c.id === cuenta.id ? { ...c, abierta: false, total, horaCierre } : c)));
+    saveEstadoMesas({ ...estadoMesas, [cuenta.mesa]: "libre" });
+    setBoucher({ ...cuenta, total, items: itemsCuenta, horaCierre });
   };
 
   const reservasDelDia = reservas
@@ -1036,7 +1166,44 @@ function Reservaciones({ mesas, reservas, saveReservas, estadoMesas, saveEstadoM
           );
         })}
       </div>
-      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "-12px 0 20px" }}>Toca una mesa para cambiar su estatus (libre → reservada → ocupada).</p>
+      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "-12px 0 20px" }}>Toca una mesa para cambiar su estatus (libre ↔ reservada). Las mesas ocupadas se liberan al cerrar la cuenta.</p>
+
+      <p style={{ fontSize: 13, fontWeight: 500, color: accent.icon, letterSpacing: 0.3, margin: "0 0 8px" }}>Cuentas abiertas ({cuentasAbiertas.length})</p>
+      {cuentasAbiertas.length === 0 && <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 20 }}>No hay cuentas abiertas.</p>}
+      {cuentasAbiertas.map((c) => (
+        <div key={c.id} style={{ background: "var(--surface-2)", border: `0.5px solid ${accent.border}`, borderRadius: 14, padding: "0.9rem", marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Mesa {c.mesa} · {c.responsable}</p>
+              <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "2px 0" }}>Mesero: {c.mesero} · abierta {c.horaApertura}</p>
+            </div>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>{money(totalCuenta(c))}</span>
+          </div>
+          <button onClick={() => cerrarCuenta(c)} style={{ width: "100%", background: accent.solid, color: "#fff", border: `0.5px solid ${accent.solid}`, borderRadius: 10 }}>
+            Cerrar cuenta ↗
+          </button>
+        </div>
+      ))}
+
+      {boucher && (
+        <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 14, padding: "1rem", marginBottom: 20 }}>
+          <p style={{ fontWeight: 600, margin: "0 0 2px" }}>Boucher — Mesa {boucher.mesa}</p>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 2px" }}>{boucher.responsable} · Mesero: {boucher.mesero}</p>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>{boucher.fecha} · {boucher.horaApertura} - {boucher.horaCierre}</p>
+          <div style={{ borderTop: "0.5px dashed var(--border)", margin: "10px 0" }} />
+          {boucher.items.map((i, idx) => (
+            <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0" }}>
+              <span>{i.cant}x {i.nombre}</span><span>{money(i.precio * i.cant)}</span>
+            </div>
+          ))}
+          <div style={{ borderTop: "0.5px dashed var(--border)", margin: "10px 0" }} />
+          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600 }}><span>Total</span><span>{money(boucher.total)}</span></div>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+            La impresión en una impresora de red requiere un servidor de impresión conectado a esta app; por ahora el boucher se muestra en pantalla.
+          </p>
+          <button onClick={() => setBoucher(null)} style={{ width: "100%", marginTop: 8 }}>Cerrar</button>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
         <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>Ver reservaciones del</label>
