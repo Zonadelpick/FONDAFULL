@@ -419,6 +419,7 @@ export default function App() {
   const [suscripcion, saveSuscripcion] = useCloudState("rc_suscripcion", { status: "inactive", desde: null });
   const [cuentas, saveCuentas] = useCloudState("rc_cuentas", []);
   const [sesionMesero, setSesionMesero] = useState(null);
+  const [sesionChef, setSesionChef] = useState(null);
   const activo = suscripcion.status === "active";
 
   const accent = ACCENTS[tab];
@@ -553,7 +554,16 @@ export default function App() {
           {tab === "caja" && (
             <Caja comandas={comandas} cortes={cortes} saveCortes={saveCortes} aperturas={aperturas} saveAperturas={saveAperturas} accent={ACCENTS.caja} />
           )}
-          {tab === "inventario" && <Inventario inventario={inventario} saveInv={saveInv} accent={ACCENTS.inventario} />}
+          {tab === "inventario" && (
+            <Inventario
+              inventario={inventario}
+              saveInv={saveInv}
+              empleados={empleados}
+              sesionChef={sesionChef}
+              setSesionChef={setSesionChef}
+              accent={ACCENTS.inventario}
+            />
+          )}
           {tab === "ingredientes" && <Ingredientes ingredientes={ingredientes} saveIng={saveIng} accent={ACCENTS.ingredientes} />}
           {tab === "costeo" && (
             <Costeo
@@ -735,6 +745,7 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
   const [mesaSel, setMesaSel] = useState(mesas[0]?.numero || 1);
   const [responsable, setResponsable] = useState("");
   const [carrito, setCarrito] = useState([]);
+  const [alertaStock, setAlertaStock] = useState([]);
 
   const ingresar = () => {
     const encontrado = meseros.find(
@@ -854,6 +865,9 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
     });
     saveInv(invActualizado);
 
+    const quedanEnUno = invActualizado.filter((inv) => inv.stock === 1 && itemsLimpios.some((i) => i.platilloId === inv.platilloId));
+    setAlertaStock(quedanEnUno.map((inv) => inv.nombre));
+
     setCarrito([]);
   };
 
@@ -865,6 +879,16 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
         </div>
         <button onClick={() => setSesionMesero(null)} style={{ fontSize: 12, padding: "4px 10px" }}>Cerrar sesión</button>
       </div>
+
+      {alertaStock.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, background: "#FCEBEB", color: "#791F1F", padding: "10px 12px", borderRadius: 12, marginBottom: 12, fontSize: 13 }}>
+          <div>
+            <i className="ti ti-alert-triangle" style={{ fontSize: 15, verticalAlign: -2, marginRight: 6 }} aria-hidden="true" />
+            ¡Alerta! Solo existe 1 platillo más de: {alertaStock.join(", ")}
+          </div>
+          <i className="ti ti-x" style={{ fontSize: 15, cursor: "pointer", flexShrink: 0 }} onClick={() => setAlertaStock([])} aria-hidden="true" />
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
         <label style={{ fontSize: 13, color: "var(--text-secondary)" }}>Mesa</label>
@@ -911,7 +935,8 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
                 const enCarrito = carrito.find((i) => i.platilloId === p.id);
                 const disp = disponibles(p.id);
                 const agotado = disp !== null && disp <= 0;
-                const bajo = disp !== null && disp > 0 && disp <= (stockDe(p.id)?.minimo || 0);
+                const soloUno = disp === 1;
+                const bajo = disp !== null && disp > 1 && disp <= (stockDe(p.id)?.minimo || 0);
                 return (
                   <button
                     key={p.id}
@@ -951,8 +976,8 @@ function Mesero({ mesas, platillos, comandas, saveCom, inventario, saveInv, empl
                     <div style={{ fontSize: 14, fontWeight: 500 }}>{p.nombre}</div>
                     <div style={{ fontSize: 13, color: accent.icon, fontWeight: 500 }}>{money(p.precio)}</div>
                     {disp !== null && (
-                      <div style={{ fontSize: 11, marginTop: 2, color: agotado ? "var(--text-danger)" : bajo ? "var(--text-warning)" : "var(--text-muted)" }}>
-                        {agotado ? "Agotado" : `${disp} disponibles`}
+                      <div style={{ fontSize: 11, marginTop: 2, fontWeight: soloUno ? 600 : 400, color: agotado || soloUno ? "var(--text-danger)" : bajo ? "var(--text-warning)" : "var(--text-muted)" }}>
+                        {agotado ? "Agotado" : soloUno ? "¡Solo queda 1!" : `${disp} disponibles`}
                       </div>
                     )}
                   </button>
@@ -1577,8 +1602,58 @@ function Caja({ comandas, cortes, saveCortes, aperturas, saveAperturas, accent }
 }
 
 // ---------- INVENTARIO ----------
-function Inventario({ inventario, saveInv, accent }) {
+function Inventario({ inventario, saveInv, empleados, sesionChef, setSesionChef, accent }) {
+  const chefs = (empleados || []).filter((e) => e.puesto === "Cocina");
+
+  const [rfcLogin, setRfcLogin] = useState("");
+  const [pinLogin, setPinLogin] = useState("");
+  const [errorLogin, setErrorLogin] = useState("");
   const [form, setForm] = useState({ nombre: "", unidad: "kg", stock: "", minimo: "", costoUnit: "" });
+
+  const ingresar = () => {
+    const encontrado = chefs.find(
+      (c) => (c.rfc || "").toUpperCase() === rfcLogin.trim().toUpperCase() && c.contrasena === pinLogin
+    );
+    if (!encontrado) {
+      setErrorLogin("RFC o contraseña incorrectos.");
+      return;
+    }
+    setErrorLogin("");
+    setRfcLogin("");
+    setPinLogin("");
+    setSesionChef({ id: encontrado.id, nombre: encontrado.nombre });
+  };
+
+  if (!sesionChef) {
+    return (
+      <div style={{ maxWidth: 320, margin: "32px auto", textAlign: "center" }}>
+        <div style={{ width: 48, height: 48, borderRadius: 12, background: accent.bg, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+          <i className="ti ti-chef-hat" style={{ fontSize: 22, color: accent.icon }} aria-hidden="true" />
+        </div>
+        <p style={{ fontSize: 15, fontWeight: 500, margin: "0 0 4px" }}>Inicio de sesión de chef</p>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>Solo el chef puede modificar el inventario. Ingresa tu RFC y contraseña.</p>
+        {chefs.length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Aún no hay ningún empleado con puesto Cocina. Ve a Configuración.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, textAlign: "left" }}>
+            <input placeholder="RFC" value={rfcLogin} onChange={(e) => setRfcLogin(e.target.value.toUpperCase())} />
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="Contraseña (4 dígitos)"
+              value={pinLogin}
+              onChange={(e) => setPinLogin(e.target.value.replace(/\D/g, ""))}
+            />
+            {errorLogin && <p style={{ fontSize: 12, color: "var(--text-danger)", margin: 0 }}>{errorLogin}</p>}
+            <button onClick={ingresar} style={{ background: accent.solid, color: "#fff", border: `0.5px solid ${accent.solid}`, borderRadius: 10 }}>
+              Ingresar ↗
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const agregar = () => {
     if (!form.nombre || !form.stock) return;
@@ -1592,16 +1667,31 @@ function Inventario({ inventario, saveInv, accent }) {
 
   return (
     <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+          Chef: <strong style={{ color: "var(--text-primary)" }}>{sesionChef.nombre}</strong>
+        </div>
+        <button onClick={() => setSesionChef(null)} style={{ fontSize: 12, padding: "4px 10px" }}>Cerrar sesión</button>
+      </div>
+
       {inventario.map((i) => {
-        const bajo = i.stock <= i.minimo;
+        const agotado = i.stock === 0;
+        const soloUno = i.stock === 1;
+        const bajo = i.stock > 1 && i.stock <= i.minimo;
         return (
-          <div key={i.id} style={{ background: "var(--surface-2)", border: `0.5px solid ${bajo ? "var(--border-danger)" : "var(--border)"}`, borderRadius: 14, padding: "0.75rem 1rem", marginBottom: 8 }}>
+          <div key={i.id} style={{ background: "var(--surface-2)", border: `0.5px solid ${soloUno || agotado ? "var(--border-danger)" : bajo ? "var(--border-danger)" : "var(--border)"}`, borderRadius: 14, padding: "0.75rem 1rem", marginBottom: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 500, fontSize: 14 }}>{i.nombre}</div>
-                <div style={{ fontSize: 13, color: bajo ? "var(--text-danger)" : "var(--text-secondary)" }}>
+                <div style={{ fontSize: 13, color: soloUno || agotado || bajo ? "var(--text-danger)" : "var(--text-secondary)" }}>
                   {i.stock} {i.unidad} en stock {bajo && "· bajo mínimo"}
                 </div>
+                {soloUno && (
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-danger)", marginTop: 2 }}>
+                    <i className="ti ti-alert-triangle" style={{ fontSize: 13, verticalAlign: -2, marginRight: 4 }} aria-hidden="true" />
+                    ¡Alerta! Solo existe 1 platillo más
+                  </div>
+                )}
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={() => ajustar(i.id, -1)} style={{ padding: "4px 10px", borderRadius: 8 }}>-1</button>
