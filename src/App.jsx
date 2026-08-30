@@ -413,7 +413,7 @@ export default function App() {
   const [ingredientes, saveIng] = useCloudState("rc_ingredientes", DEFAULTS.ingredientes);
   const [gastosOp, saveGastosOp] = useCloudState("rc_gastos_operativos", []);
   const [costeoCfg, saveCosteoCfg] = useCloudState("rc_costeo_config", { platillosMes: 0 });
-  const [config, saveConfig] = useCloudState("rc_config", { nombre: "NORO", logo: null });
+  const [config, saveConfig] = useCloudState("rc_config", { nombre: "", logo: null });
   const [suscripcion, saveSuscripcion] = useCloudState("rc_suscripcion", { status: "inactive", desde: null });
   const activo = suscripcion.status === "active";
 
@@ -435,10 +435,12 @@ export default function App() {
 
   return (
     <div style={{ maxWidth: 480, margin: "0 auto", fontFamily: "var(--font-sans)" }}>
-      <h2 className="sr-only">Sistema de gestión de restaurante en la nube</h2>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, marginBottom: 16, paddingTop: 4 }}>
+        <LogoFondafull size={44} fontSize={32} />
 
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, marginBottom: 16, paddingTop: 4 }}>
-        <LogoFondafull size={30} fontSize={21} />
+        <p style={{ fontSize: 12, color: "var(--text-secondary)", textAlign: "center", margin: "0 0 6px", letterSpacing: 0.2 }}>
+          Sistema de gestión de restaurante en la nube
+        </p>
 
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {config.logo ? (
