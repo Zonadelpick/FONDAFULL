@@ -1,0 +1,22 @@
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --radius: 10px;
+  --surface-1: #F4F2ED;
+  --surface-2: #FFFFFF;
+  --border: #E5E2D9;
+  --border-strong: #C9C5B8;
+  --border-danger: #E0654F;
+  --border-accent: #E8A23D;
+  --text-primary: #232320;
+  --text-secondary: #6B6860;
+  --text-muted: #928F84;
+  --text-danger: #C0392B;
+  --text-warning: #B87A24;
+  --text-success: #27500A;
+  --fill-primary: #232320;
+  --on-primary: #FFFFFF;
+  --bg-accent: #F1EFE8;
+  --text-accent: #232320;
+}
+body { margin: 0; background: var(--surface-1); font-family: var(--font-sans); }
+button, input, select { font-family: var(--font-sans); }
