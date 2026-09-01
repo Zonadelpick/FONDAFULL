@@ -334,7 +334,13 @@ function AuthGate({ onIngresar }) {
   const [nombre, setNombre] = useState("");
   const [correo, setCorreo] = useState("");
   const [pass, setPass] = useState("");
+  const [mostrarPass, setMostrarPass] = useState(false);
   const [error, setError] = useState("");
+  const [pendienteVerificacion, setPendienteVerificacion] = useState(null);
+
+  const [recuperarCorreo, setRecuperarCorreo] = useState("");
+  const [recuperarEnviado, setRecuperarEnviado] = useState(false);
+  const [errorRecuperar, setErrorRecuperar] = useState("");
 
   const beneficios = [
     { icon: "ti-clipboard-list", label: "Mesero", desc: "Comandas de mesa a cocina en tiempo real" },
@@ -362,8 +368,53 @@ function AuthGate({ onIngresar }) {
       return;
     }
     setError("");
-    onIngresar({ nombre: modo === "crear" ? nombre.trim() : correo.split("@")[0], correo });
+    const datos = { nombre: modo === "crear" ? nombre.trim() : correo.split("@")[0], correo };
+    if (modo === "crear") {
+      // Simulación de correo de confirmación de identidad antes de dejar entrar al usuario.
+      setPendienteVerificacion(datos);
+    } else {
+      onIngresar(datos);
+    }
   };
+
+  const enviarRecuperacion = (e) => {
+    e.preventDefault();
+    if (!recuperarCorreo.includes("@")) {
+      setErrorRecuperar("Escribe un correo válido.");
+      return;
+    }
+    setErrorRecuperar("");
+    setRecuperarEnviado(true);
+  };
+
+  if (pendienteVerificacion) {
+    return (
+      <div style={{ maxWidth: 420, margin: "64px auto", fontFamily: "var(--font-sans)", padding: "32px 4px", textAlign: "center" }}>
+        <div style={{ width: 52, height: 52, borderRadius: 14, background: "#FAEEDA", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+          <i className="ti ti-mail-check" style={{ fontSize: 24, color: "#633806" }} aria-hidden="true" />
+        </div>
+        <p style={{ fontSize: 16, fontWeight: 600, margin: "0 0 6px" }}>Confirma tu correo</p>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }}>
+          Enviamos un correo de confirmación a <strong style={{ color: "var(--text-primary)" }}>{pendienteVerificacion.correo}</strong> para verificar tu identidad. Abre el enlace que te enviamos para activar tu cuenta.
+        </p>
+        <button
+          onClick={() => onIngresar(pendienteVerificacion)}
+          style={{ width: "100%", background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0", marginBottom: 8 }}
+        >
+          Ya confirmé mi correo ↗
+        </button>
+        <button
+          onClick={() => setPendienteVerificacion(null)}
+          style={{ width: "100%", fontSize: 13 }}
+        >
+          Reenviar correo / regresar
+        </button>
+        <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginTop: 14 }}>
+          Verificación simulada en este prototipo. En producción se envía un correo real con un enlace de confirmación (p. ej. con Supabase Auth).
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 480, margin: "0 auto", fontFamily: "var(--font-sans)", padding: "32px 4px" }}>
@@ -389,42 +440,104 @@ function AuthGate({ onIngresar }) {
       <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 16, padding: "0.5rem" }}>
         <div style={{ display: "flex", gap: 4, background: "var(--surface-1)", borderRadius: 12, padding: 4, marginBottom: 16 }}>
           <button
-            onClick={() => setModo("crear")}
+            onClick={() => { setModo("crear"); setRecuperarEnviado(false); }}
             style={{ flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, background: modo === "crear" ? "#E8A23D" : "transparent", color: modo === "crear" ? "#231802" : "var(--text-secondary)", border: "none" }}
           >
             Crear cuenta
           </button>
           <button
-            onClick={() => setModo("entrar")}
+            onClick={() => { setModo("entrar"); setRecuperarEnviado(false); }}
             style={{ flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, background: modo === "entrar" ? "#E8A23D" : "transparent", color: modo === "entrar" ? "#231802" : "var(--text-secondary)", border: "none" }}
           >
             Iniciar sesión
           </button>
         </div>
 
-        <form onSubmit={enviar} style={{ padding: "0 12px 16px" }}>
-          {modo === "crear" && (
+        {modo === "recuperar" ? (
+          <div style={{ padding: "0 12px 16px" }}>
+            {recuperarEnviado ? (
+              <>
+                <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 12px" }}>
+                  Si <strong style={{ color: "var(--text-primary)" }}>{recuperarCorreo}</strong> está registrado, te enviamos instrucciones para restablecer tu contraseña.
+                </p>
+                <button
+                  onClick={() => { setModo("entrar"); setRecuperarEnviado(false); }}
+                  style={{ width: "100%", background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0" }}
+                >
+                  Regresar a iniciar sesión
+                </button>
+              </>
+            ) : (
+              <form onSubmit={enviarRecuperacion}>
+                <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 12px" }}>
+                  Escribe tu correo y te enviaremos instrucciones para recuperar tu contraseña.
+                </p>
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Correo electrónico</label>
+                  <input type="email" value={recuperarCorreo} onChange={(e) => setRecuperarCorreo(e.target.value)} placeholder="tucorreo@ejemplo.com" style={{ width: "100%" }} />
+                </div>
+                {errorRecuperar && <p style={{ fontSize: 12, color: "var(--text-danger)", margin: "4px 0 8px" }}>{errorRecuperar}</p>}
+                <button type="submit" style={{ width: "100%", marginTop: 8, background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0" }}>
+                  Enviar instrucciones ↗
+                </button>
+                <button type="button" onClick={() => setModo("entrar")} style={{ width: "100%", marginTop: 8, fontSize: 13 }}>
+                  Regresar
+                </button>
+              </form>
+            )}
+          </div>
+        ) : (
+          <form onSubmit={enviar} style={{ padding: "0 12px 16px" }}>
+            {modo === "crear" && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Nombre del restaurante</label>
+                <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej. Mi restaurante" style={{ width: "100%" }} />
+              </div>
+            )}
             <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Nombre del restaurante</label>
-              <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej. NORO" style={{ width: "100%" }} />
+              <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Correo electrónico</label>
+              <input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} placeholder="tucorreo@ejemplo.com" style={{ width: "100%" }} />
             </div>
-          )}
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Correo electrónico</label>
-            <input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} placeholder="tucorreo@ejemplo.com" style={{ width: "100%" }} />
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Contraseña</label>
-            <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="Mínimo 8 caracteres" style={{ width: "100%" }} />
-          </div>
-          {error && <p style={{ fontSize: 12, color: "var(--text-danger)", margin: "4px 0 8px" }}>{error}</p>}
-          <button type="submit" style={{ width: "100%", marginTop: 8, background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0" }}>
-            {modo === "crear" ? "Crear cuenta ↗" : "Iniciar sesión ↗"}
-          </button>
-        </form>
+            <div style={{ marginBottom: 4 }}>
+              <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Contraseña</label>
+              <div style={{ position: "relative" }}>
+                <input
+                  type={mostrarPass ? "text" : "password"}
+                  value={pass}
+                  onChange={(e) => setPass(e.target.value)}
+                  placeholder="Mínimo 8 caracteres"
+                  style={{ width: "100%", paddingRight: 36 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarPass((v) => !v)}
+                  aria-label={mostrarPass ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", padding: 6, display: "flex", alignItems: "center" }}
+                >
+                  <i className={`ti ${mostrarPass ? "ti-eye-off" : "ti-eye"}`} style={{ fontSize: 16, color: "var(--text-muted)" }} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+            {modo === "entrar" && (
+              <div style={{ textAlign: "right", marginBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => { setModo("recuperar"); setRecuperarCorreo(correo); setError(""); }}
+                  style={{ fontSize: 12, color: "var(--text-secondary)", background: "transparent", border: "none", padding: 0 }}
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+            )}
+            {error && <p style={{ fontSize: 12, color: "var(--text-danger)", margin: "4px 0 8px" }}>{error}</p>}
+            <button type="submit" style={{ width: "100%", marginTop: 8, background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0" }}>
+              {modo === "crear" ? "Crear cuenta ↗" : "Iniciar sesión ↗"}
+            </button>
+          </form>
+        )}
       </div>
       <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginTop: 14 }}>
-        Inicio de sesión simulado en este prototipo. En producción se maneja con Supabase Auth (contraseñas cifradas, nunca en texto plano).
+        Inicio de sesión simulado en este prototipo. En producción se maneja con Supabase Auth (contraseñas cifradas, nunca en texto plano; correos de confirmación y recuperación reales).
       </p>
     </div>
   );
@@ -2711,7 +2824,7 @@ function Configuracion({ config, saveConfig, suscripcion, saveSuscripcion, sesio
         <input
           value={nombre}
           onChange={(e) => setNombre(e.target.value)}
-          placeholder="Ej. NORO"
+          placeholder="Ej. Mi restaurante"
           style={{ width: "100%", marginBottom: 8 }}
         />
         {error && <p style={{ fontSize: 13, color: "var(--text-danger)", margin: "0 0 8px" }}>{error}</p>}
