@@ -199,6 +199,21 @@ function useCloudState(key, fallback) {
     fallbackRef.current = fallback;
   });
 
+  // Si nadie ha guardado nada todavía bajo esta clave (p. ej. platillos/inventario recién
+  // generados con IDs aleatorios en esta pestaña), lo persistimos de inmediato. Así, cualquier
+  // otra pestaña que cargue después recibe exactamente los mismos IDs y registros — evitando que
+  // el inventario (platilloId) quede desincronizado del menú (platillos.id) entre pestañas.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(key) === null) {
+        localStorage.setItem(key, JSON.stringify(value));
+      }
+    } catch (e) {
+      console.error("storage error", e);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
   // Mantiene sincronizados el inventario, las comandas, etc. entre pestañas del mismo navegador
   // (p. ej. Mesero, Cocina y el chef abiertos en pestañas separadas al mismo tiempo).
   useEffect(() => {
