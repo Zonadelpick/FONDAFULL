@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { supabase, setSessionPersistence } from "./lib/supabaseClient";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const money = (n) => `$${(Number(n) || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}`;
@@ -329,18 +330,95 @@ function LogoFondafull({ size = 30, fontSize = 21 }) {
   );
 }
 
-function AuthGate({ onIngresar }) {
-  const [modo, setModo] = useState("crear");
-  const [nombre, setNombre] = useState("");
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
+
+function passwordChecks(p) {
+  return {
+    length: p.length >= 8,
+    upper: /[A-Z]/.test(p),
+    number: /\d/.test(p),
+    special: /[^A-Za-z0-9]/.test(p),
+  };
+}
+function passwordValida(p) {
+  const c = passwordChecks(p);
+  return c.length && c.upper && c.number && c.special;
+}
+
+function PasswordInput({ value, onChange, placeholder, mostrar, setMostrar, autoComplete }) {
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        type={mostrar ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        style={{ width: "100%", paddingRight: 36 }}
+      />
+      <button
+        type="button"
+        onClick={() => setMostrar((v) => !v)}
+        aria-label={mostrar ? "Ocultar contraseña" : "Mostrar contraseña"}
+        style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", padding: 6, display: "flex", alignItems: "center" }}
+      >
+        <i className={`ti ${mostrar ? "ti-eye-off" : "ti-eye"}`} style={{ fontSize: 16, color: "var(--text-muted)" }} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+function ChecklistItem({ ok, label }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: ok ? "var(--text-success)" : "var(--text-muted)" }}>
+      <i className={`ti ${ok ? "ti-circle-check" : "ti-circle"}`} style={{ fontSize: 13 }} aria-hidden="true" />
+      {label}
+    </div>
+  );
+}
+
+function ChecklistPassword({ pass }) {
+  const c = passwordChecks(pass);
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 4, margin: "6px 0 10px" }}>
+      <ChecklistItem ok={c.length} label="8+ caracteres" />
+      <ChecklistItem ok={c.upper} label="Una mayúscula" />
+      <ChecklistItem ok={c.number} label="Un número" />
+      <ChecklistItem ok={c.special} label="Un carácter especial" />
+    </div>
+  );
+}
+
+function AuthGate() {
+  const [modo, setModo] = useState("crear"); // crear | entrar | recuperar
+
+  const [nombreRestaurante, setNombreRestaurante] = useState("");
+  const [nombreResponsable, setNombreResponsable] = useState("");
+  const [telefono, setTelefono] = useState("");
   const [correo, setCorreo] = useState("");
   const [pass, setPass] = useState("");
+  const [passConfirmar, setPassConfirmar] = useState("");
   const [mostrarPass, setMostrarPass] = useState(false);
+  const [mostrarPassConfirmar, setMostrarPassConfirmar] = useState(false);
+  const [recordarme, setRecordarme] = useState(true);
   const [error, setError] = useState("");
+  const [cargando, setCargando] = useState(false);
+
   const [pendienteVerificacion, setPendienteVerificacion] = useState(null);
+  const [reenviarEnFrio, setReenviarEnFrio] = useState(0);
+  const [reenviando, setReenviando] = useState(false);
+  const [mensajeReenvio, setMensajeReenvio] = useState("");
 
   const [recuperarCorreo, setRecuperarCorreo] = useState("");
   const [recuperarEnviado, setRecuperarEnviado] = useState(false);
   const [errorRecuperar, setErrorRecuperar] = useState("");
+  const [cargandoRecuperar, setCargandoRecuperar] = useState(false);
+
+  useEffect(() => {
+    if (reenviarEnFrio <= 0) return;
+    const t = setTimeout(() => setReenviarEnFrio((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [reenviarEnFrio]);
 
   const beneficios = [
     { icon: "ti-clipboard-list", label: "Mesero", desc: "Comandas de mesa a cocina en tiempo real" },
@@ -353,37 +431,111 @@ function AuthGate({ onIngresar }) {
     { icon: "ti-truck", label: "Proveedores", desc: "Cuentas por pagar con vencimiento" },
   ];
 
-  const enviar = (e) => {
-    e.preventDefault();
-    if (modo === "crear" && !nombre.trim()) {
-      setError("Escribe tu nombre.");
-      return;
-    }
-    if (!correo.includes("@")) {
-      setError("Escribe un correo válido.");
-      return;
-    }
-    if (pass.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
-      return;
-    }
-    setError("");
-    const datos = { nombre: modo === "crear" ? nombre.trim() : correo.split("@")[0], correo };
-    if (modo === "crear") {
-      // Simulación de correo de confirmación de identidad antes de dejar entrar al usuario.
-      setPendienteVerificacion(datos);
+  const reenviarCorreo = async () => {
+    if (!pendienteVerificacion || reenviarEnFrio > 0 || reenviando) return;
+    setReenviando(true);
+    setMensajeReenvio("");
+    const { error: resendError } = await supabase.auth.resend({ type: "signup", email: pendienteVerificacion.correo });
+    setReenviando(false);
+    if (resendError) {
+      setMensajeReenvio("No se pudo reenviar el correo. Intenta de nuevo en un momento.");
     } else {
-      onIngresar(datos);
+      setMensajeReenvio("Correo reenviado. Revisa tu bandeja de entrada (y spam).");
+      setReenviarEnFrio(60);
     }
   };
 
-  const enviarRecuperacion = (e) => {
+  const enviar = async (e) => {
     e.preventDefault();
-    if (!recuperarCorreo.includes("@")) {
+    setError("");
+
+    if (modo === "crear") {
+      if (!nombreRestaurante.trim()) return setError("Escribe el nombre de tu restaurante.");
+      if (!nombreResponsable.trim()) return setError("Escribe tu nombre.");
+      if (!EMAIL_RE.test(correo)) return setError("Escribe un correo válido.");
+      if (!passwordValida(pass)) return setError("La contraseña debe tener 8+ caracteres, una mayúscula, un número y un carácter especial.");
+      if (pass !== passConfirmar) return setError("Las contraseñas no coinciden.");
+
+      setCargando(true);
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: correo.trim(),
+        password: pass,
+        options: {
+          data: {
+            nombre_restaurante: nombreRestaurante.trim(),
+            nombre_responsable: nombreResponsable.trim(),
+            telefono: telefono.trim(),
+          },
+        },
+      });
+      setCargando(false);
+
+      if (signUpError) {
+        setError(/already registered|already exists/i.test(signUpError.message)
+          ? "Ese correo ya tiene una cuenta. Intenta iniciar sesión."
+          : signUpError.message || "No se pudo crear la cuenta. Intenta de nuevo.");
+        return;
+      }
+      if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        setError("Ese correo ya tiene una cuenta. Intenta iniciar sesión.");
+        return;
+      }
+
+      setPendienteVerificacion({ correo: correo.trim() });
+      setReenviarEnFrio(60);
+      return;
+    }
+
+    // modo === "entrar"
+    if (!EMAIL_RE.test(correo)) return setError("Escribe un correo válido.");
+    if (!pass) return setError("Escribe tu contraseña.");
+
+    setCargando(true);
+
+    const { data: lockRows } = await supabase.rpc("check_login_lockout", { p_email: correo.trim() });
+    const lock = Array.isArray(lockRows) ? lockRows[0] : lockRows;
+    if (lock?.is_locked) {
+      setCargando(false);
+      const minutos = Math.max(1, Math.ceil((new Date(lock.locked_until).getTime() - Date.now()) / 60000));
+      setError(`Tu cuenta está bloqueada temporalmente por intentos fallidos. Intenta de nuevo en ${minutos} minuto${minutos === 1 ? "" : "s"}.`);
+      return;
+    }
+
+    setSessionPersistence(recordarme);
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email: correo.trim(), password: pass });
+    setCargando(false);
+
+    if (signInError) {
+      if (/email not confirmed/i.test(signInError.message)) {
+        setError("Tu correo aún no está confirmado. Revisa tu bandeja de entrada.");
+        return;
+      }
+      const { data: attemptRows } = await supabase.rpc("record_failed_login", { p_email: correo.trim() });
+      const attempt = Array.isArray(attemptRows) ? attemptRows[0] : attemptRows;
+      if (attempt?.locked_until) {
+        setError("Demasiados intentos fallidos. Tu cuenta quedó bloqueada temporalmente por 15 minutos.");
+      } else {
+        const restantes = Math.max(0, 5 - (attempt?.failed_count || 0));
+        setError(`Correo o contraseña incorrectos.${restantes > 0 ? ` Te quedan ${restantes} intento${restantes === 1 ? "" : "s"}.` : ""}`);
+      }
+      return;
+    }
+
+    await supabase.rpc("reset_login_attempts", { p_email: correo.trim() });
+    // La sesión real se detecta automáticamente en App (onAuthStateChange) y muestra el dashboard.
+  };
+
+  const enviarRecuperacion = async (e) => {
+    e.preventDefault();
+    if (!EMAIL_RE.test(recuperarCorreo)) {
       setErrorRecuperar("Escribe un correo válido.");
       return;
     }
     setErrorRecuperar("");
+    setCargandoRecuperar(true);
+    await supabase.auth.resetPasswordForEmail(recuperarCorreo.trim(), { redirectTo: window.location.origin });
+    setCargandoRecuperar(false);
+    // Siempre mostramos éxito, sin revelar si el correo existe o no (evita enumeración de cuentas).
     setRecuperarEnviado(true);
   };
 
@@ -395,22 +547,24 @@ function AuthGate({ onIngresar }) {
         </div>
         <p style={{ fontSize: 16, fontWeight: 600, margin: "0 0 6px" }}>Confirma tu correo</p>
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }}>
-          Enviamos un correo de confirmación a <strong style={{ color: "var(--text-primary)" }}>{pendienteVerificacion.correo}</strong> para verificar tu identidad. Abre el enlace que te enviamos para activar tu cuenta.
+          Enviamos un correo de confirmación a <strong style={{ color: "var(--text-primary)" }}>{pendienteVerificacion.correo}</strong>. Abre el enlace que te enviamos para activar tu cuenta — luego regresa aquí e inicia sesión.
         </p>
+        {mensajeReenvio && <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 12px" }}>{mensajeReenvio}</p>}
         <button
-          onClick={() => onIngresar(pendienteVerificacion)}
-          style={{ width: "100%", background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0", marginBottom: 8 }}
+          onClick={reenviarCorreo}
+          disabled={reenviando || reenviarEnFrio > 0}
+          style={{ width: "100%", background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0", marginBottom: 8, opacity: reenviando || reenviarEnFrio > 0 ? 0.6 : 1 }}
         >
-          Ya confirmé mi correo ↗
+          {reenviando ? "Reenviando..." : reenviarEnFrio > 0 ? `Reenviar correo (${reenviarEnFrio}s)` : "Reenviar correo ↗"}
         </button>
         <button
-          onClick={() => setPendienteVerificacion(null)}
+          onClick={() => { setPendienteVerificacion(null); setModo("entrar"); }}
           style={{ width: "100%", fontSize: 13 }}
         >
-          Reenviar correo / regresar
+          Ya confirmé, ir a iniciar sesión
         </button>
         <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginTop: 14 }}>
-          Verificación simulada en este prototipo. En producción se envía un correo real con un enlace de confirmación (p. ej. con Supabase Auth).
+          Correo real enviado con Supabase Auth. Si no lo ves, revisa tu carpeta de spam.
         </p>
       </div>
     );
@@ -440,13 +594,13 @@ function AuthGate({ onIngresar }) {
       <div style={{ background: "var(--surface-2)", border: "0.5px solid var(--border)", borderRadius: 16, padding: "0.5rem" }}>
         <div style={{ display: "flex", gap: 4, background: "var(--surface-1)", borderRadius: 12, padding: 4, marginBottom: 16 }}>
           <button
-            onClick={() => { setModo("crear"); setRecuperarEnviado(false); }}
+            onClick={() => { setModo("crear"); setRecuperarEnviado(false); setError(""); }}
             style={{ flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, background: modo === "crear" ? "#E8A23D" : "transparent", color: modo === "crear" ? "#231802" : "var(--text-secondary)", border: "none" }}
           >
             Crear cuenta
           </button>
           <button
-            onClick={() => { setModo("entrar"); setRecuperarEnviado(false); }}
+            onClick={() => { setModo("entrar"); setRecuperarEnviado(false); setError(""); }}
             style={{ flex: 1, padding: "9px 0", borderRadius: 9, fontSize: 13, fontWeight: 600, background: modo === "entrar" ? "#E8A23D" : "transparent", color: modo === "entrar" ? "#231802" : "var(--text-secondary)", border: "none" }}
           >
             Iniciar sesión
@@ -458,7 +612,7 @@ function AuthGate({ onIngresar }) {
             {recuperarEnviado ? (
               <>
                 <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 12px" }}>
-                  Si <strong style={{ color: "var(--text-primary)" }}>{recuperarCorreo}</strong> está registrado, te enviamos instrucciones para restablecer tu contraseña.
+                  Si <strong style={{ color: "var(--text-primary)" }}>{recuperarCorreo}</strong> está registrado, te enviamos instrucciones para restablecer tu contraseña. El enlace expira pronto y solo funciona una vez.
                 </p>
                 <button
                   onClick={() => { setModo("entrar"); setRecuperarEnviado(false); }}
@@ -477,8 +631,8 @@ function AuthGate({ onIngresar }) {
                   <input type="email" value={recuperarCorreo} onChange={(e) => setRecuperarCorreo(e.target.value)} placeholder="tucorreo@ejemplo.com" style={{ width: "100%" }} />
                 </div>
                 {errorRecuperar && <p style={{ fontSize: 12, color: "var(--text-danger)", margin: "4px 0 8px" }}>{errorRecuperar}</p>}
-                <button type="submit" style={{ width: "100%", marginTop: 8, background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0" }}>
-                  Enviar instrucciones ↗
+                <button type="submit" disabled={cargandoRecuperar} style={{ width: "100%", marginTop: 8, background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0", opacity: cargandoRecuperar ? 0.7 : 1 }}>
+                  {cargandoRecuperar ? "Enviando..." : "Enviar instrucciones ↗"}
                 </button>
                 <button type="button" onClick={() => setModo("entrar")} style={{ width: "100%", marginTop: 8, fontSize: 13 }}>
                   Regresar
@@ -489,37 +643,63 @@ function AuthGate({ onIngresar }) {
         ) : (
           <form onSubmit={enviar} style={{ padding: "0 12px 16px" }}>
             {modo === "crear" && (
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Nombre del restaurante</label>
-                <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej. Mi restaurante" style={{ width: "100%" }} />
-              </div>
+              <>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Nombre del restaurante</label>
+                  <input value={nombreRestaurante} onChange={(e) => setNombreRestaurante(e.target.value)} placeholder="Ej. Mi restaurante" style={{ width: "100%" }} />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Nombre del responsable</label>
+                  <input value={nombreResponsable} onChange={(e) => setNombreResponsable(e.target.value)} placeholder="Ej. Ana Pérez" style={{ width: "100%" }} />
+                </div>
+              </>
             )}
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Correo electrónico</label>
               <input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} placeholder="tucorreo@ejemplo.com" style={{ width: "100%" }} />
             </div>
-            <div style={{ marginBottom: 4 }}>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Contraseña</label>
-              <div style={{ position: "relative" }}>
-                <input
-                  type={mostrarPass ? "text" : "password"}
-                  value={pass}
-                  onChange={(e) => setPass(e.target.value)}
-                  placeholder="Mínimo 8 caracteres"
-                  style={{ width: "100%", paddingRight: 36 }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setMostrarPass((v) => !v)}
-                  aria-label={mostrarPass ? "Ocultar contraseña" : "Mostrar contraseña"}
-                  style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", padding: 6, display: "flex", alignItems: "center" }}
-                >
-                  <i className={`ti ${mostrarPass ? "ti-eye-off" : "ti-eye"}`} style={{ fontSize: 16, color: "var(--text-muted)" }} aria-hidden="true" />
-                </button>
+            {modo === "crear" && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Teléfono</label>
+                <input type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="Ej. 6461234567" style={{ width: "100%" }} />
               </div>
+            )}
+            <div style={{ marginBottom: modo === "crear" ? 0 : 4 }}>
+              <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Contraseña</label>
+              <PasswordInput
+                value={pass}
+                onChange={(e) => setPass(e.target.value)}
+                placeholder={modo === "crear" ? "Mínimo 8 caracteres" : "Tu contraseña"}
+                mostrar={mostrarPass}
+                setMostrar={setMostrarPass}
+                autoComplete={modo === "crear" ? "new-password" : "current-password"}
+              />
             </div>
+            {modo === "crear" && <ChecklistPassword pass={pass} />}
+            {modo === "crear" && (
+              <div style={{ marginBottom: 4 }}>
+                <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Confirmar contraseña</label>
+                <PasswordInput
+                  value={passConfirmar}
+                  onChange={(e) => setPassConfirmar(e.target.value)}
+                  placeholder="Repite tu contraseña"
+                  mostrar={mostrarPassConfirmar}
+                  setMostrar={setMostrarPassConfirmar}
+                  autoComplete="new-password"
+                />
+                {passConfirmar.length > 0 && (
+                  <p style={{ fontSize: 11, margin: "4px 0 0", color: passConfirmar === pass ? "var(--text-success)" : "var(--text-danger)" }}>
+                    {passConfirmar === pass ? "Las contraseñas coinciden" : "Las contraseñas no coinciden"}
+                  </p>
+                )}
+              </div>
+            )}
             {modo === "entrar" && (
-              <div style={{ textAlign: "right", marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "10px 0 8px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+                  <input type="checkbox" checked={recordarme} onChange={(e) => setRecordarme(e.target.checked)} />
+                  Recordarme
+                </label>
                 <button
                   type="button"
                   onClick={() => { setModo("recuperar"); setRecuperarCorreo(correo); setError(""); }}
@@ -529,22 +709,86 @@ function AuthGate({ onIngresar }) {
                 </button>
               </div>
             )}
-            {error && <p style={{ fontSize: 12, color: "var(--text-danger)", margin: "4px 0 8px" }}>{error}</p>}
-            <button type="submit" style={{ width: "100%", marginTop: 8, background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0" }}>
-              {modo === "crear" ? "Crear cuenta ↗" : "Iniciar sesión ↗"}
+            {error && <p style={{ fontSize: 12, color: "var(--text-danger)", margin: "10px 0 8px" }}>{error}</p>}
+            <button type="submit" disabled={cargando} style={{ width: "100%", marginTop: 8, background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0", opacity: cargando ? 0.7 : 1 }}>
+              {cargando ? "Procesando..." : modo === "crear" ? "Crear cuenta ↗" : "Iniciar sesión ↗"}
             </button>
           </form>
         )}
       </div>
       <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginTop: 14 }}>
-        Inicio de sesión simulado en este prototipo. En producción se maneja con Supabase Auth (contraseñas cifradas, nunca en texto plano; correos de confirmación y recuperación reales).
+        Tus datos se protegen con Supabase Auth: contraseñas cifradas (nunca en texto plano) y sesiones seguras.
       </p>
     </div>
   );
 }
 
+function RestablecerPassword({ onListo }) {
+  const [pass, setPass] = useState("");
+  const [passConfirmar, setPassConfirmar] = useState("");
+  const [mostrarPass, setMostrarPass] = useState(false);
+  const [mostrarPassConfirmar, setMostrarPassConfirmar] = useState(false);
+  const [error, setError] = useState("");
+  const [cargando, setCargando] = useState(false);
+  const [listo, setListo] = useState(false);
+
+  const enviar = async (e) => {
+    e.preventDefault();
+    if (!passwordValida(pass)) return setError("La contraseña debe tener 8+ caracteres, una mayúscula, un número y un carácter especial.");
+    if (pass !== passConfirmar) return setError("Las contraseñas no coinciden.");
+
+    setError("");
+    setCargando(true);
+    const { error: updateError } = await supabase.auth.updateUser({ password: pass });
+    setCargando(false);
+
+    if (updateError) {
+      setError(updateError.message || "No se pudo actualizar la contraseña. El enlace puede haber expirado — solicita uno nuevo.");
+      return;
+    }
+    setListo(true);
+  };
+
+  return (
+    <div style={{ maxWidth: 420, margin: "64px auto", fontFamily: "var(--font-sans)", padding: "32px 4px" }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+        <LogoFondafull size={30} fontSize={21} />
+      </div>
+      {listo ? (
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: 16, fontWeight: 600, margin: "0 0 8px" }}>Contraseña actualizada</p>
+          <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 20px" }}>Ya puedes continuar usando Fondafull.</p>
+          <button onClick={onListo} style={{ width: "100%", background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0" }}>
+            Continuar ↗
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={enviar}>
+          <p style={{ fontSize: 15, fontWeight: 500, textAlign: "center", margin: "0 0 4px" }}>Establece tu nueva contraseña</p>
+          <p style={{ fontSize: 13, color: "var(--text-secondary)", textAlign: "center", margin: "0 0 20px" }}>Este enlace es de un solo uso.</p>
+          <div style={{ marginBottom: 4 }}>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Nueva contraseña</label>
+            <PasswordInput value={pass} onChange={(e) => setPass(e.target.value)} placeholder="Mínimo 8 caracteres" mostrar={mostrarPass} setMostrar={setMostrarPass} autoComplete="new-password" />
+          </div>
+          <ChecklistPassword pass={pass} />
+          <div style={{ marginBottom: 4 }}>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Confirmar contraseña</label>
+            <PasswordInput value={passConfirmar} onChange={(e) => setPassConfirmar(e.target.value)} placeholder="Repite tu contraseña" mostrar={mostrarPassConfirmar} setMostrar={setMostrarPassConfirmar} autoComplete="new-password" />
+          </div>
+          {error && <p style={{ fontSize: 12, color: "var(--text-danger)", margin: "10px 0 8px" }}>{error}</p>}
+          <button type="submit" disabled={cargando} style={{ width: "100%", marginTop: 8, background: "#E8A23D", color: "#231802", border: "0.5px solid #E8A23D", borderRadius: 10, fontWeight: 600, padding: "11px 0", opacity: cargando ? 0.7 : 1 }}>
+            {cargando ? "Guardando..." : "Guardar nueva contraseña ↗"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
-  const [sesion, setSesion] = useState(null);
+  const [session, setSession] = useState(undefined); // undefined = cargando, null = sin sesión
+  const [recoveryMode, setRecoveryMode] = useState(false);
+  const [authProfile, setAuthProfile] = useState(null);
   const [tab, setTab] = useState("inicio");
   const [platillos, saveP] = useCloudState("rc_platillos", DEFAULTS.platillos);
   const [inventario, saveInv] = useCloudState("rc_inventario", DEFAULTS.inventario);
@@ -576,16 +820,66 @@ export default function App() {
   const seccionesId = SECCIONES.map((s) => s.id);
   const seccionBloqueada = !activo && seccionesId.includes(tab);
 
-  if (!sesion) {
-    return (
-      <AuthGate
-        onIngresar={(datos) => {
-          setSesion(datos);
+  useEffect(() => {
+    let activa = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (activa) setSession(data.session ?? null);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nuevaSesion) => {
+      if (event === "PASSWORD_RECOVERY") setRecoveryMode(true);
+      setSession(nuevaSesion);
+    });
+    return () => {
+      activa = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!session?.user) {
+      setAuthProfile(null);
+      return;
+    }
+    let activa = true;
+    supabase
+      .from("profiles")
+      .select("nombre_responsable, restaurants(nombre)")
+      .eq("id", session.user.id)
+      .single()
+      .then(({ data }) => {
+        if (!activa) return;
+        setAuthProfile({
+          nombre: data?.nombre_responsable || session.user.email.split("@")[0],
+          correo: session.user.email,
+        });
+        // Prototipo sin cobro real todavía: activamos el acceso completo en cuanto hay sesión válida.
+        if (suscripcion.status !== "active") {
           saveSuscripcion({ status: "active", desde: today() });
-        }}
-      />
+        }
+      });
+    return () => {
+      activa = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id]);
+
+  if (session === undefined) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+        <i className="ti ti-loader-2" style={{ fontSize: 28, color: "var(--text-muted)" }} aria-hidden="true" />
+      </div>
     );
   }
+
+  if (recoveryMode) {
+    return <RestablecerPassword onListo={() => setRecoveryMode(false)} />;
+  }
+
+  if (!session) {
+    return <AuthGate />;
+  }
+
+  const sesion = authProfile || { nombre: session.user.email.split("@")[0], correo: session.user.email };
 
   return (
     <div style={{ maxWidth: 480, margin: "0 auto", fontFamily: "var(--font-sans)" }}>
@@ -756,7 +1050,7 @@ export default function App() {
           )}
         </>
       )}
-      {tab === "config" && <Configuracion config={config} saveConfig={saveConfig} suscripcion={suscripcion} saveSuscripcion={saveSuscripcion} sesion={sesion} onCerrarSesion={() => setSesion(null)} empleados={empleados} saveEmp={saveEmp} accent={ACCENTS.config} />}
+      {tab === "config" && <Configuracion config={config} saveConfig={saveConfig} suscripcion={suscripcion} saveSuscripcion={saveSuscripcion} sesion={sesion} onCerrarSesion={() => supabase.auth.signOut()} empleados={empleados} saveEmp={saveEmp} accent={ACCENTS.config} />}
     </div>
   );
 }
